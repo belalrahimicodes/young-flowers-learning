@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>🌸 Young Flowers Learning</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="script.js" defer></script>
+</head>
+<body>
+
+<div id="landing">
+  <h1>🌸 Young Flowers Learning</h1>
+  <button onclick="join('learn')">I Want to Learn</button>
+  <button onclick="join('teach')">I Want to Teach</button>
+  <p id="onlineCount">Online users: 0</p>
+</div>
+
+<div id="room" hidden>
+  <div class="controls">
+    <button id="muteBtn" onclick="toggleMute()">Mute</button>
+    <button id="cameraBtn" onclick="toggleCamera()">Camera Off</button>
+    <button onclick="nextUser()">Next</button>
+  </div>
+
+  <div class="videos">
+    <video id="localVideo" autoplay muted></video>
+    <video id="remoteVideo" autoplay></video>
+  </div>
+
+  <div class="chat">
+    <div id="messages"></div>
+    <input id="chatInput" placeholder="Type a message..." />
+    <button id="sendBtn">Send</button>
+  </div>
+</div>
+
+</body>
+</html>
