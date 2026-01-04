@@ -4,9 +4,10 @@ const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 const io = new Server(server, {
   cors: {
-    origin: "https://young-flowers-learning-production.up.railway.app",
+    origin: CLIENT_ORIGIN,
     methods: ["GET", "POST"]
   }
 });
