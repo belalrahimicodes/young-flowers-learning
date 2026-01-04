@@ -27,8 +27,13 @@ async function join(selectedRole) {
   landing.hidden = true;
   room.hidden = false;
 
-  localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-  localVideo.srcObject = localStream;
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localVideo.srcObject = localStream;
+  } catch (err) {
+    console.warn('getUserMedia failed:', err);
+    // allow joining without media
+  }
 
   socket.emit("join", role);
 }
@@ -82,6 +87,7 @@ function cleanupConnection() {
 
 // Socket events
 socket.on("matched", id => {
+  console.log('matched with', id);
   partnerId = id;
   room.hidden = false; // stay visible
   createPeer(true);
@@ -110,10 +116,30 @@ socket.on("partner-left", () => {
   cleanupConnection();
   socket.emit("join", role);
 });
+// Socket connection logging and errors
+socket.on('connect', () => {
+  console.log('socket connected', socket.id);
+});
+socket.on('connect_error', err => {
+  console.error('socket connect_error:', err);
+});
+socket.on('reconnect_attempt', n => console.log('reconnect attempt', n));
 
-// Online user count (server-sent)
+// Online user count (server-sent preferred)
 socket.on('onlineCount', n => {
   onlineCount.textContent = `Online users: ${n}`;
+});
+
+// Fallback: if server doesn't send counts, try a safe client-side estimate
+socket.on('connect', () => {
+  try {
+    if (socket.io && socket.io.engine && socket.io.engine.clients) {
+      const clients = socket.io.engine.clients;
+      onlineCount.textContent = `Online users: ${Object.keys(clients).length}`;
+    }
+  } catch (e) {
+    // ignore, server will send count when available
+  }
 });
 
 // WebRTC
