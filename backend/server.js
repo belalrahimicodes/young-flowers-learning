@@ -90,6 +90,12 @@ function emitOnlineCount() {
 }
 
 // Health check for platform
+// Basic root route (some platforms probe `/`)
+app.get('/', (req, res) => {
+  res.send('OK');
+});
+
+// Health check for platform
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
