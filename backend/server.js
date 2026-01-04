@@ -17,9 +17,10 @@ let teachers = [];
 let pairs = new Map(); // socket.id -> partner.id
 
 io.on("connection", socket => {
-
+  console.log('Socket connected:', socket.id);
   socket.on("join", role => {
     socket.role = role;
+    console.log(`Socket ${socket.id} joined as ${role}`);
     addToQueue(socket);
     matchUsers();
   });
@@ -69,10 +70,16 @@ io.on("connection", socket => {
       pairs.set(learner.id, teacher.id);
       pairs.set(teacher.id, learner.id);
 
+      console.log(`Matched learner ${learner.id} with teacher ${teacher.id}`);
       learner.emit("matched", teacher.id);
       teacher.emit("matched", learner.id);
     }
   }
+});
+
+// Health check for platform
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
 });
 
 const PORT = process.env.PORT || 3000;

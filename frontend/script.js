@@ -1,4 +1,7 @@
-const socket = io("https://young-flowers-learning-production.up.railway.app");
+// Read backend socket URL from the script tag's `data-socket` attribute.
+const scriptEl = document.getElementById('app-script');
+const SOCKET_URL = (scriptEl && scriptEl.dataset && scriptEl.dataset.socket) ? scriptEl.dataset.socket : null;
+const socket = io(SOCKET_URL || window.location.origin);
 
 let localStream;
 let peer;
