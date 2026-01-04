@@ -78,4 +78,33 @@ io.on("connection", socket => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`CLIENT_ORIGIN=${CLIENT_ORIGIN}`);
+});
+
+// Log server errors and platform signals to help diagnose SIGTERM
+server.on('error', err => {
+  console.error('Server error:', err);
+});
+
+process.on('uncaughtException', err => {
+  console.error('Uncaught exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, p) => {
+  console.error('Unhandled Rejection at:', p, 'reason:', reason);
+});
+
+process.on('SIGTERM', () => {
+  console.warn('SIGTERM received — shutting down gracefully');
+  server.close(() => {
+    process.exit(0);
+  });
+  // force exit after 10s
+  setTimeout(() => process.exit(1), 10000).unref();
+});
+
+process.on('SIGINT', () => {
+  console.warn('SIGINT received — exiting');
+  process.exit(0);
 });
