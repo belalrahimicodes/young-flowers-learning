@@ -1,4 +1,4 @@
-const socket = io("https://young-flowers-learning-backend.up.railway.app");
+const socket = io("https://young-flowers-learning-production.up.railway.app");
 
 let localStream;
 let peer;
