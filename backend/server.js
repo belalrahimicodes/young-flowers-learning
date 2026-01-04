@@ -18,6 +18,7 @@ let pairs = new Map(); // socket.id -> partner.id
 
 io.on("connection", socket => {
   console.log('Socket connected:', socket.id);
+  emitOnlineCount();
   socket.on("join", role => {
     socket.role = role;
     console.log(`Socket ${socket.id} joined as ${role}`);
@@ -41,6 +42,7 @@ io.on("connection", socket => {
   socket.on("disconnect", () => {
     disconnectPair(socket);
     removeFromQueue(socket);
+    emitOnlineCount();
   });
 
   function addToQueue(socket) {
@@ -76,6 +78,16 @@ io.on("connection", socket => {
     }
   }
 });
+
+function emitOnlineCount() {
+  try {
+    const count = io.of("/").sockets.size;
+    io.emit('onlineCount', count);
+    console.log('Online count:', count);
+  } catch (e) {
+    console.error('Failed to emit onlineCount', e);
+  }
+}
 
 // Health check for platform
 app.get('/health', (req, res) => {

@@ -111,12 +111,10 @@ socket.on("partner-left", () => {
   socket.emit("join", role);
 });
 
-// Online user count
-socket.on("connect", () => updateOnline());
-socket.on("disconnect", () => updateOnline());
-function updateOnline() {
-  onlineCount.textContent = `Online users: ${Object.keys(socket.io.engine.clients).length}`;
-}
+// Online user count (server-sent)
+socket.on('onlineCount', n => {
+  onlineCount.textContent = `Online users: ${n}`;
+});
 
 // WebRTC
 function createPeer(isCaller) {
