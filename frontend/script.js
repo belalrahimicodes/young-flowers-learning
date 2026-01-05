@@ -1,5 +1,6 @@
 // Read backend socket URL from global variable set in HTML
-const SOCKET_URL = 'https://young-flowers-learning-production.up.railway.app';
+// Railway runs on port 8080, and the URL should be the full domain
+const SOCKET_URL = 'https://young-flowers-learning-production.up.railway.app:8080';
 
 console.log('=== Socket.IO Connection Debug ===');
 console.log('SOCKET_URL:', SOCKET_URL);
