@@ -1,12 +1,12 @@
 // Read backend socket URL from global variable set in HTML
-// Railway runs on port 8080, and the URL should be the full domain
-const SOCKET_URL = 'https://young-flowers-learning-production.up.railway.app:8080';
+// Railway public domain handles routing automatically
+const SOCKET_URL = 'https://young-flowers-learning-production.up.railway.app';
 
 console.log('=== Socket.IO Connection Debug ===');
 console.log('SOCKET_URL:', SOCKET_URL);
-console.log('Current page origin:', window.location.origin);
+console.log('window.io:', typeof window.io);
 
-const socket = io(SOCKET_URL, {
+const socket = window.io(SOCKET_URL, {
   path: '/socket.io/',
   reconnection: true,
   reconnectionDelay: 1000,
@@ -14,18 +14,12 @@ const socket = io(SOCKET_URL, {
   reconnectionAttempts: 5,
   transports: ['websocket', 'polling'],
   secure: true,
-  rejectUnauthorized: false
+  rejectUnauthorized: false,
+  forceNew: true
 });
 
-console.log('Socket object created:', socket);
-
-socket.on('connect_error', (error) => {
-  console.error('❌ Socket connection error:', error);
-});
-
-socket.on('error', (error) => {
-  console.error('❌ Socket error:', error);
-});
+console.log('Socket created with ID:', socket.id);
+console.log('Socket URL:', socket.io.uri);
 
 let localStream;
 let peer;
@@ -147,9 +141,9 @@ socket.on("partner-left", () => {
   socket.emit("join", role);
 });
 
-// Socket connection logging and errors
 socket.on('connect', () => {
   console.log('✅ Socket connected successfully!', socket.id);
+  console.log('Connected to:', socket.io.uri);
   // Request initial online count from server
   socket.emit('getOnlineCount');
 });
@@ -164,6 +158,11 @@ socket.on('reconnect', () => {
 
 socket.on('reconnect_error', (error) => {
   console.error('❌ Socket reconnect error:', error);
+});
+
+socket.on('connect_error', (error) => {
+  console.error('❌ Socket connection error:', error);
+  console.error('Attempted to connect to:', SOCKET_URL);
 });
 
 // WebRTC
