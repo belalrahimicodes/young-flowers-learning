@@ -4,11 +4,13 @@ const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
+// Get the frontend URL from environment or allow all origins
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 const io = new Server(server, {
   cors: {
     origin: CLIENT_ORIGIN,
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
@@ -19,11 +21,13 @@ let pairs = new Map(); // socket.id -> partner.id
 io.on("connection", socket => {
   console.log('Socket connected:', socket.id);
   emitOnlineCount();
+  
   socket.on("join", role => {
     socket.role = role;
     console.log(`Socket ${socket.id} joined as ${role}`);
     addToQueue(socket);
     matchUsers();
+    emitOnlineCount();
   });
 
   socket.on("signal", data => {
@@ -37,6 +41,13 @@ io.on("connection", socket => {
     disconnectPair(socket);
     addToQueue(socket);
     matchUsers();
+  });
+
+  socket.on("getOnlineCount", () => {
+    // Send online count to requesting client
+    const count = io.of("/").sockets.size;
+    socket.emit('onlineCount', count);
+    console.log(`Sent online count ${count} to ${socket.id}`);
   });
 
   socket.on("disconnect", () => {
@@ -76,6 +87,7 @@ io.on("connection", socket => {
       learner.emit("matched", teacher.id);
       teacher.emit("matched", learner.id);
     }
+    emitOnlineCount();
   }
 });
 

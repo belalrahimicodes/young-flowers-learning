@@ -22,6 +22,12 @@ const onlineCount = document.getElementById("onlineCount");
 const muteBtn = document.getElementById("muteBtn");
 const cameraBtn = document.getElementById("cameraBtn");
 
+// Online user count listener (set up before connection)
+socket.on('onlineCount', n => {
+  onlineCount.textContent = `Online users: ${n}`;
+  console.log('Updated online count:', n);
+});
+
 async function join(selectedRole) {
   role = selectedRole;
   landing.hidden = true;
@@ -119,28 +125,13 @@ socket.on("partner-left", () => {
 // Socket connection logging and errors
 socket.on('connect', () => {
   console.log('socket connected', socket.id);
+  // Request initial online count from server
+  socket.emit('getOnlineCount');
 });
 socket.on('connect_error', err => {
   console.error('socket connect_error:', err);
 });
 socket.on('reconnect_attempt', n => console.log('reconnect attempt', n));
-
-// Online user count (server-sent preferred)
-socket.on('onlineCount', n => {
-  onlineCount.textContent = `Online users: ${n}`;
-});
-
-// Fallback: if server doesn't send counts, try a safe client-side estimate
-socket.on('connect', () => {
-  try {
-    if (socket.io && socket.io.engine && socket.io.engine.clients) {
-      const clients = socket.io.engine.clients;
-      onlineCount.textContent = `Online users: ${Object.keys(clients).length}`;
-    }
-  } catch (e) {
-    // ignore, server will send count when available
-  }
-});
 
 // WebRTC
 function createPeer(isCaller) {
