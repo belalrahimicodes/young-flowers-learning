@@ -1,14 +1,29 @@
 // Read backend socket URL from global variable set in HTML
-const SOCKET_URL = window.BACKEND_URL || 'https://young-flowers-learning-production.up.railway.app';
+const SOCKET_URL = 'https://young-flowers-learning-production.up.railway.app';
 
-console.log('Connecting to socket URL:', SOCKET_URL);
+console.log('=== Socket.IO Connection Debug ===');
+console.log('SOCKET_URL:', SOCKET_URL);
+console.log('Current page origin:', window.location.origin);
 
 const socket = io(SOCKET_URL, {
+  path: '/socket.io/',
   reconnection: true,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
   reconnectionAttempts: 5,
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
+  secure: true,
+  rejectUnauthorized: false
+});
+
+console.log('Socket object created:', socket);
+
+socket.on('connect_error', (error) => {
+  console.error('❌ Socket connection error:', error);
+});
+
+socket.on('error', (error) => {
+  console.error('❌ Socket error:', error);
 });
 
 let localStream;
@@ -130,16 +145,25 @@ socket.on("partner-left", () => {
   cleanupConnection();
   socket.emit("join", role);
 });
+
 // Socket connection logging and errors
 socket.on('connect', () => {
-  console.log('socket connected', socket.id);
+  console.log('✅ Socket connected successfully!', socket.id);
   // Request initial online count from server
   socket.emit('getOnlineCount');
 });
-socket.on('connect_error', err => {
-  console.error('socket connect_error:', err);
+
+socket.on('disconnect', (reason) => {
+  console.log('⚠️ Socket disconnected:', reason);
 });
-socket.on('reconnect_attempt', n => console.log('reconnect attempt', n));
+
+socket.on('reconnect', () => {
+  console.log('✅ Socket reconnected');
+});
+
+socket.on('reconnect_error', (error) => {
+  console.error('❌ Socket reconnect error:', error);
+});
 
 // WebRTC
 function createPeer(isCaller) {
