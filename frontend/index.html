@@ -6,7 +6,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script id="app-script" src="script.js" defer data-socket="https://young-flowers-learning-production.up.railway.app"></script>
+  <script>
+    // Set global socket URL BEFORE loading app script
+    window.BACKEND_URL = 'https://young-flowers-learning-production.up.railway.app';
+    console.log('Backend URL set to:', window.BACKEND_URL);
+  </script>
+  <script src="script.js" defer></script>
 </head>
 <body>
 

@@ -1,16 +1,14 @@
-// Read backend socket URL from the script tag's `data-socket` attribute.
-const scriptEl = document.getElementById('app-script');
-const SOCKET_URL = scriptEl?.getAttribute('data-socket') || null;
+// Read backend socket URL from global variable set in HTML
+const SOCKET_URL = window.BACKEND_URL || 'https://young-flowers-learning-production.up.railway.app';
 
-console.log('Backend URL from data-socket:', SOCKET_URL);
-console.log('Current origin:', window.location.origin);
+console.log('Connecting to socket URL:', SOCKET_URL);
 
-// Always use the explicit backend URL if provided, never fallback to localhost
-const socket = io(SOCKET_URL || 'https://young-flowers-learning-production.up.railway.app', {
+const socket = io(SOCKET_URL, {
   reconnection: true,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
-  reconnectionAttempts: 5
+  reconnectionAttempts: 5,
+  transports: ['websocket', 'polling']
 });
 
 let localStream;
