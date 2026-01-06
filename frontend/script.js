@@ -138,8 +138,10 @@ function toggleCamera() {
 
 // Next button
 function nextUser() {
+  console.log('Next button clicked, current role:', role);
   cleanupConnection();
   socket.emit("next");
+  console.log('Next request sent to server');
 }
 
 // Cleanup connection

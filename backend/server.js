@@ -54,9 +54,17 @@ io.on("connection", socket => {
   });
 
   socket.on("next", () => {
+    console.log(`Socket ${socket.id} clicked next, role: ${socket.role}`);
     disconnectPair(socket);
-    addToQueue(socket);
-    matchUsers();
+    // Remove from queue first to avoid duplicates
+    removeFromQueue(socket);
+    // Re-add to queue if role is still set
+    if (socket.role) {
+      addToQueue(socket);
+      matchUsers();
+    } else {
+      console.warn(`Socket ${socket.id} clicked next but has no role set`);
+    }
   });
 
   socket.on("getOnlineCount", () => {
@@ -73,8 +81,17 @@ io.on("connection", socket => {
   });
 
   function addToQueue(socket) {
-    if (socket.role === "learn") learners.push(socket);
-    if (socket.role === "teach") teachers.push(socket);
+    // Remove from queue first to avoid duplicates
+    removeFromQueue(socket);
+    // Then add to appropriate queue
+    if (socket.role === "learn") {
+      learners.push(socket);
+      console.log(`Added learner ${socket.id} to queue. Queue size: ${learners.length}`);
+    }
+    if (socket.role === "teach") {
+      teachers.push(socket);
+      console.log(`Added teacher ${socket.id} to queue. Queue size: ${teachers.length}`);
+    }
   }
 
   function removeFromQueue(socket) {
@@ -92,17 +109,27 @@ io.on("connection", socket => {
   }
 
   function matchUsers() {
+    console.log(`Matching: ${learners.length} learners, ${teachers.length} teachers`);
     while (learners.length > 0 && teachers.length > 0) {
       const learner = learners.shift();
       const teacher = teachers.shift();
 
+      // Verify sockets are still connected
+      if (!learner.connected || !teacher.connected) {
+        console.warn('Skipping match - one or both sockets disconnected');
+        if (!learner.connected) removeFromQueue(learner);
+        if (!teacher.connected) removeFromQueue(teacher);
+        continue;
+      }
+
       pairs.set(learner.id, teacher.id);
       pairs.set(teacher.id, learner.id);
 
-      console.log(`Matched learner ${learner.id} with teacher ${teacher.id}`);
+      console.log(`✅ Matched learner ${learner.id} with teacher ${teacher.id}`);
       learner.emit("matched", teacher.id);
       teacher.emit("matched", learner.id);
     }
+    console.log(`After matching: ${learners.length} learners, ${teachers.length} teachers remaining`);
     emitOnlineCount();
   }
 });
