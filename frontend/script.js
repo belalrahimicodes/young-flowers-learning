@@ -175,7 +175,10 @@ function cleanupConnection() {
 
 // Socket events
 socket.on("matched", id => {
-  console.log('✅ MATCHED with partner:', id);
+  console.log('🎉🎉🎉 MATCHED EVENT RECEIVED! Partner ID:', id);
+  console.log('Current role:', role);
+  console.log('Local stream available:', !!localStream);
+  
   partnerId = id;
   room.hidden = false; // stay visible
   
@@ -187,25 +190,48 @@ socket.on("matched", id => {
   if (messages) {
     messages.innerHTML = `<div style="text-align: center; padding: 20px; color: green;">✅ Matched! Connecting...</div>`;
   }
-  createPeer(true);
+  
+  try {
+    createPeer(true);
+    console.log('✅ createPeer called successfully');
+  } catch (error) {
+    console.error('❌ Error in createPeer:', error);
+    if (messages) {
+      messages.innerHTML += `<div style="color: red;">Error connecting: ${error.message}</div>`;
+    }
+  }
 });
 
 socket.on("signal", async data => {
-  if (!peer) createPeer(false);
-
-  if (data.signal.type === "offer") {
-    await peer.setRemoteDescription(data.signal);
-    const answer = await peer.createAnswer();
-    await peer.setLocalDescription(answer);
-    socket.emit("signal", { to: data.from, signal: answer });
+  console.log('📨 Signal received:', data.signal.type || 'ICE candidate', 'from:', data.from);
+  
+  if (!peer) {
+    console.log('📥 No peer exists, creating one (receiver)');
+    createPeer(false);
   }
 
-  if (data.signal.type === "answer") {
-    await peer.setRemoteDescription(data.signal);
-  }
+  try {
+    if (data.signal.type === "offer") {
+      console.log('📥 Processing offer from:', data.from);
+      await peer.setRemoteDescription(data.signal);
+      console.log('📥 Remote description set, creating answer');
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+      console.log('📤 Sending answer to:', data.from);
+      socket.emit("signal", { to: data.from, signal: answer });
+    }
 
-  if (data.signal.candidate) {
-    await peer.addIceCandidate(data.signal);
+    if (data.signal.type === "answer") {
+      console.log('📥 Processing answer from:', data.from);
+      await peer.setRemoteDescription(data.signal);
+    }
+
+    if (data.signal.candidate) {
+      console.log('🧊 Adding ICE candidate from:', data.from);
+      await peer.addIceCandidate(data.signal);
+    }
+  } catch (error) {
+    console.error('❌ Error processing signal:', error);
   }
 });
 
@@ -219,6 +245,18 @@ socket.on('connect', () => {
   console.log('Connected to:', socket.io.uri);
   // Request initial online count from server
   socket.emit('getOnlineCount');
+});
+
+// Debug: Log all socket events
+const originalEmit = socket.emit;
+socket.emit = function(...args) {
+  console.log('📤 Emitting:', args[0], args.slice(1));
+  return originalEmit.apply(this, args);
+};
+
+// Log all received events
+socket.onAny((eventName, ...args) => {
+  console.log('📥 Received event:', eventName, args);
 });
 
 socket.on('disconnect', (reason) => {
@@ -240,11 +278,29 @@ socket.on('connect_error', (error) => {
 
 // WebRTC
 function createPeer(isCaller) {
+  console.log('🔵 createPeer called, isCaller:', isCaller);
+  console.log('Local stream:', localStream ? 'available' : 'NOT available');
+  
+  if (!localStream) {
+    console.warn('⚠️ No local stream available, creating peer without tracks');
+  }
+  
   peer = new RTCPeerConnection();
 
-  localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
+  // Only add tracks if localStream exists
+  if (localStream && localStream.getTracks) {
+    localStream.getTracks().forEach(track => {
+      console.log('Adding track:', track.kind, track.enabled);
+      peer.addTrack(track, localStream);
+    });
+  } else {
+    console.warn('⚠️ Cannot add tracks - localStream is not available');
+  }
 
-  peer.ontrack = e => remoteVideo.srcObject = e.streams[0];
+  peer.ontrack = e => {
+    console.log('📹 Remote track received:', e.track.kind);
+    remoteVideo.srcObject = e.streams[0];
+  };
 
   peer.onicecandidate = e => {
     if (e.candidate) {
@@ -253,19 +309,36 @@ function createPeer(isCaller) {
   };
 
   if (isCaller) {
+    console.log('📞 Creating data channel and offer (caller)');
     dataChannel = peer.createDataChannel("chat");
     setupDataChannel();
 
     peer.createOffer().then(offer => {
-      peer.setLocalDescription(offer);
-      socket.emit("signal", { to: partnerId, signal: offer });
+      console.log('📤 Offer created, setting local description');
+      return peer.setLocalDescription(offer);
+    }).then(() => {
+      console.log('📤 Sending offer to partner:', partnerId);
+      socket.emit("signal", { to: partnerId, signal: peer.localDescription });
+    }).catch(error => {
+      console.error('❌ Error creating/sending offer:', error);
     });
   } else {
+    console.log('📥 Waiting for data channel and offer (receiver)');
     peer.ondatachannel = e => {
+      console.log('📥 Data channel received');
       dataChannel = e.channel;
       setupDataChannel();
     };
   }
+  
+  // Add error handlers
+  peer.onerror = (error) => {
+    console.error('❌ RTCPeerConnection error:', error);
+  };
+  
+  peer.onconnectionstatechange = () => {
+    console.log('🔵 Peer connection state:', peer.connectionState);
+  };
 }
 
 function setupDataChannel() {
