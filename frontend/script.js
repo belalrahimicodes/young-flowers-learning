@@ -71,6 +71,8 @@ let partnerId;
 let role;
 let isMuted = false;
 let cameraOff = false;
+let isCaller = false; // Track if we're the caller
+let isProcessingMatch = false; // Prevent duplicate match processing
 
 const landing = document.getElementById("landing");
 const room = document.getElementById("room");
@@ -169,12 +171,20 @@ function cleanupConnection() {
   peer = null;
   dataChannel = null;
   partnerId = null;
+  isCaller = false;
+  isProcessingMatch = false;
   remoteVideo.srcObject = null;
-  messages.innerHTML = "";
+  if (messages) messages.innerHTML = "";
 }
 
 // Socket events
 socket.on("matched", id => {
+  // Prevent processing the same match multiple times
+  if (isProcessingMatch && partnerId === id) {
+    console.log('⚠️ Ignoring duplicate match event for same partner:', id);
+    return;
+  }
+  
   console.log('🎉🎉🎉 MATCHED EVENT RECEIVED! Partner ID:', id);
   console.log('Current role:', role);
   console.log('Local stream available:', !!localStream);
@@ -185,6 +195,7 @@ socket.on("matched", id => {
     cleanupConnection();
   }
   
+  isProcessingMatch = true;
   partnerId = id;
   room.hidden = false; // stay visible
   
@@ -199,7 +210,7 @@ socket.on("matched", id => {
   
   // Determine who should be the caller based on socket ID (lower ID is caller)
   // This ensures only one side creates the offer
-  const isCaller = socket.id < id;
+  isCaller = socket.id < id;
   console.log('Will be caller:', isCaller, '(socket.id:', socket.id, 'vs partner:', id, ')');
   
   try {
@@ -207,6 +218,7 @@ socket.on("matched", id => {
     console.log('✅ createPeer called successfully');
   } catch (error) {
     console.error('❌ Error in createPeer:', error);
+    isProcessingMatch = false;
     if (messages) {
       messages.innerHTML += `<div style="color: red;">Error connecting: ${error.message}</div>`;
     }
@@ -215,11 +227,21 @@ socket.on("matched", id => {
 
 socket.on("signal", async data => {
   console.log('📨 Signal received:', data.signal.type || 'ICE candidate', 'from:', data.from);
+  console.log('Current partner ID:', partnerId);
   console.log('Current peer state:', peer ? peer.signalingState : 'no peer');
+  
+  // Only process signals from our current partner
+  if (partnerId && data.from !== partnerId) {
+    console.warn('⚠️ Ignoring signal from non-partner:', data.from, '(expected:', partnerId, ')');
+    return;
+  }
   
   // If we don't have a peer yet and this is an offer, create one as receiver
   if (!peer && data.signal.type === "offer") {
     console.log('📥 No peer exists, creating one (receiver)');
+    if (!partnerId) {
+      partnerId = data.from; // Set partner ID from offer
+    }
     createPeer(false);
   }
   
@@ -251,15 +273,22 @@ socket.on("signal", async data => {
     if (data.signal.type === "answer") {
       console.log('📥 Processing answer from:', data.from);
       console.log('Current signaling state:', peer.signalingState);
+      console.log('We are caller:', isCaller);
       
-      // Only process answer if we're in have-local-offer state
+      // Only process answer if we're the caller and in have-local-offer state
+      if (!isCaller) {
+        console.warn('⚠️ Received answer but we are not the caller - ignoring');
+        return;
+      }
+      
       if (peer.signalingState !== 'have-local-offer') {
-        console.warn('⚠️ Cannot process answer - wrong state:', peer.signalingState);
+        console.warn('⚠️ Cannot process answer - wrong state:', peer.signalingState, '(expected: have-local-offer)');
         return;
       }
       
       await peer.setRemoteDescription(data.signal);
       console.log('✅ Answer processed successfully');
+      isProcessingMatch = false; // Match processing complete
     }
 
     if (data.signal.candidate) {
