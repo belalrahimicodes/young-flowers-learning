@@ -33,6 +33,8 @@ const io = new Server(server, {
 let learners = [];
 let teachers = [];
 let pairs = new Map(); // socket.id -> partner.id
+// Simple short-term dedupe map for signals to avoid forwarding duplicates
+const lastSignals = new Map(); // key: `${from}->${to}` -> { sig, ts }
 
 io.on("connection", socket => {
   console.log('Socket connected:', socket.id);
@@ -48,10 +50,25 @@ io.on("connection", socket => {
   });
 
   socket.on("signal", data => {
-    socket.to(data.to).emit("signal", {
-      from: socket.id,
-      signal: data.signal
-    });
+    try {
+      const key = `${socket.id}->${data.to}`;
+      const sigStr = JSON.stringify(data.signal || {});
+      const now = Date.now();
+      const prev = lastSignals.get(key);
+      if (prev && prev.sig === sigStr && (now - prev.ts) < 1000) {
+        console.log(`Skipping duplicate signal from ${socket.id} to ${data.to}`);
+        return;
+      }
+      lastSignals.set(key, { sig: sigStr, ts: now });
+      // Forward the signal
+      console.log(`Forwarding signal from ${socket.id} to ${data.to} type: ${data.signal && data.signal.type ? data.signal.type : 'candidate'}`);
+      socket.to(data.to).emit("signal", {
+        from: socket.id,
+        signal: data.signal
+      });
+    } catch (err) {
+      console.error('Error handling signal:', err);
+    }
   });
 
   socket.on("next", () => {
