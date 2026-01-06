@@ -333,7 +333,14 @@ socket.on("signal", async data => {
         console.warn('⚠️ Cannot process answer now - wrong state:', peer.signalingState, '(expected: have-local-offer). Queuing answer.');
         // Queue the answer to process later when local offer has been sent
         if (!peer.pendingRemoteAnswers) peer.pendingRemoteAnswers = [];
-        peer.pendingRemoteAnswers.push(data.signal);
+        // avoid queuing duplicate SDP
+        const sdp = data.signal && data.signal.sdp ? data.signal.sdp : JSON.stringify(data.signal || {});
+        if (peer._lastQueuedAnswer !== sdp) {
+          peer.pendingRemoteAnswers.push(data.signal);
+          peer._lastQueuedAnswer = sdp;
+        } else {
+          console.warn('⚠️ Duplicate answer SDP detected, not queueing');
+        }
         return;
       }
 
@@ -521,10 +528,16 @@ function createPeer(isCaller) {
           for (const answer of queued) {
             try {
               console.log('📥 Applying queued answer (after have-local-offer)');
+              const sdp = answer && answer.sdp ? answer.sdp : JSON.stringify(answer || {});
+              if (peer.remoteDescription && peer.remoteDescription.sdp === sdp) {
+                console.warn('⚠️ Queued answer matches existing remoteDescription - skipping');
+                continue;
+              }
               if (!peer._processingRemote) {
                 peer._processingRemote = true;
                 await peer.setRemoteDescription(answer);
                 peer._processingRemote = false;
+                peer._lastRemoteSDP = sdp;
               }
             } catch (err) {
               console.error('Error applying queued answer:', err);
