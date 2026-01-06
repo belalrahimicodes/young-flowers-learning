@@ -129,9 +129,11 @@ app.get('/health', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+// Bind to 0.0.0.0 to accept connections from Railway's proxy
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`CLIENT_ORIGIN=${CLIENT_ORIGIN}`);
+  console.log(`Server bound to 0.0.0.0:${PORT}`);
 });
 
 // Log server errors and platform signals to help diagnose SIGTERM
