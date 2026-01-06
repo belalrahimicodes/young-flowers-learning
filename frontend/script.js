@@ -4,27 +4,64 @@ const SOCKET_URL =
   (typeof window !== "undefined" && window.BACKEND_URL) ||
   "https://young-flowers-learning-production.up.railway.app";
 
-console.log('=== Socket.IO Connection Debug ===');
+// Version check - if you see this, the new script is loaded
+console.log('=== Socket.IO Connection Debug v2 ===');
 console.log('SOCKET_URL:', SOCKET_URL);
 console.log('window.io:', typeof window.io);
-console.log('Transport config: polling only, upgrade disabled');
 
-const socket = window.io(SOCKET_URL, {
-  // Force polling only - WebSocket upgrade is disabled
-  // This is more reliable on Railway/Netlify deployments
+// Test backend connectivity first
+async function testBackendConnectivity() {
+  try {
+    const healthUrl = SOCKET_URL.replace(/\/socket\.io\/?$/, '') + '/health';
+    console.log('Testing backend connectivity:', healthUrl);
+    const response = await fetch(healthUrl);
+    const data = await response.text();
+    console.log('✅ Backend is reachable:', response.status, data);
+    return true;
+  } catch (error) {
+    console.error('❌ Backend connectivity test failed:', error);
+    return false;
+  }
+}
+
+// Run connectivity test
+testBackendConnectivity();
+
+// Explicitly prevent WebSocket attempts
+const socketOptions = {
+  // CRITICAL: Force polling ONLY, no WebSocket attempts
   transports: ["polling"],
   upgrade: false,
+  allowUpgrades: false,
   reconnection: true,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
   reconnectionAttempts: 5,
   // Add query parameter to help with debugging
-  query: { transport: 'polling' }
-});
+  query: { transport: 'polling', v: '2' },
+  // Force new connection
+  forceNew: true
+};
+
+console.log('Socket options:', JSON.stringify(socketOptions, null, 2));
+
+const socket = window.io(SOCKET_URL, socketOptions);
 
 console.log('Socket created with ID:', socket.id);
-console.log('Socket transport:', socket.io.engine?.transport?.name || 'unknown');
 console.log('Socket URL:', socket.io.uri);
+
+// Monitor transport changes
+socket.io.on("transport", (transport) => {
+  console.log('🔵 Transport changed to:', transport.name);
+  if (transport.name === 'websocket') {
+    console.error('❌ ERROR: WebSocket transport detected! This should not happen.');
+  }
+});
+
+socket.io.on("open", () => {
+  console.log('✅ Socket.IO connection opened');
+  console.log('Current transport:', socket.io.engine?.transport?.name);
+});
 
 let localStream;
 let peer;
