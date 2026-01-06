@@ -5,6 +5,7 @@ const SOCKET_URL =
   "https://exquisite-victory-production-1e5e.up.railway.app";
 
 // Version check - if you see this, the new script is loaded
+console.log('🚀🚀🚀 NEW VERSION LOADED - v20241220-001 🚀🚀🚀');
 console.log('=== Socket.IO Connection Debug v2 ===');
 console.log('SOCKET_URL:', SOCKET_URL);
 console.log('window.io:', typeof window.io);
