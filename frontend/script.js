@@ -270,6 +270,21 @@ socket.on("signal", async data => {
       
       await peer.setRemoteDescription(data.signal);
       console.log('📥 Remote description set, creating answer');
+      
+      // Process any pending ICE candidates now that remote description is set
+      if (peer.pendingCandidates && peer.pendingCandidates.length > 0) {
+        console.log('📥 Processing', peer.pendingCandidates.length, 'pending ICE candidates (after offer)');
+        const pendingCandidates = peer.pendingCandidates;
+        peer.pendingCandidates = [];
+        for (const candidate of pendingCandidates) {
+          try {
+            await peer.addIceCandidate(candidate);
+          } catch (err) {
+            console.error('Error adding pending candidate:', err);
+          }
+        }
+      }
+      
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
       console.log('📤 Sending answer to:', data.from);
@@ -300,6 +315,21 @@ socket.on("signal", async data => {
       
       await peer.setRemoteDescription(data.signal);
       console.log('✅ Answer processed successfully');
+      
+      // Process any pending ICE candidates now that remote description is set
+      if (peer.pendingCandidates && peer.pendingCandidates.length > 0) {
+        console.log('📥 Processing', peer.pendingCandidates.length, 'pending ICE candidates (after answer)');
+        const pendingCandidates = peer.pendingCandidates;
+        peer.pendingCandidates = [];
+        for (const candidate of pendingCandidates) {
+          try {
+            await peer.addIceCandidate(candidate);
+          } catch (err) {
+            console.error('Error adding pending candidate:', err);
+          }
+        }
+      }
+      
       isProcessingMatch = false; // Match processing complete
     }
 
@@ -307,7 +337,12 @@ socket.on("signal", async data => {
       console.log('🧊 Adding ICE candidate from:', data.from);
       // Only add candidates if remote description is set
       if (peer.remoteDescription) {
-        await peer.addIceCandidate(data.signal);
+        try {
+          await peer.addIceCandidate(data.signal);
+          console.log('✅ ICE candidate added successfully');
+        } catch (err) {
+          console.error('Error adding ICE candidate:', err.message);
+        }
       } else {
         console.log('⏳ Queueing ICE candidate (waiting for remote description)');
         // Queue the candidate to add later
