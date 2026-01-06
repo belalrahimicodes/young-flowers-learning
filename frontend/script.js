@@ -2,7 +2,7 @@
 // Falls back to the production Railway URL if not set.
 const SOCKET_URL =
   (typeof window !== "undefined" && window.BACKEND_URL) ||
-  "https://exquisite-victory-production-1e5e.up.railway.app";
+  "https://young-flowers-learning-production.up.railway.app";
 
 // Version check - if you see this, the new script is loaded
 console.log('🚀🚀🚀 NEW VERSION LOADED - v20241220-001 🚀🚀🚀');
