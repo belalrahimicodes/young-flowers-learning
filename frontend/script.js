@@ -25,6 +25,17 @@ async function testBackendConnectivity() {
   }
 }
 
+// Wait for a specific peer.signalingState (with timeout)
+async function waitForPeerState(peer, desiredState, timeout = 2000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    if (!peer) return false;
+    if (peer.signalingState === desiredState) return true;
+    await new Promise(r => setTimeout(r, 50));
+  }
+  return false;
+}
+
 // Run connectivity test
 testBackendConnectivity();
 
@@ -499,23 +510,27 @@ function createPeer(isCaller) {
       console.log('📤 Sending offer to partner:', partnerId);
       socket.emit("signal", { to: partnerId, signal: peer.localDescription });
 
-      // If any answers arrived early, process them now
+      // If any answers arrived early, wait for local-offer state then process them
       if (peer.pendingRemoteAnswers && peer.pendingRemoteAnswers.length > 0) {
-        console.log('📥 Processing', peer.pendingRemoteAnswers.length, 'queued answers after sending offer');
-        const queued = peer.pendingRemoteAnswers.splice(0);
-        queued.forEach(async answer => {
-          try {
-            // reuse existing answer handling path
-            console.log('📥 Applying queued answer');
-            if (!peer._processingRemote) {
-              peer._processingRemote = true;
-              await peer.setRemoteDescription(answer);
-              peer._processingRemote = false;
+        console.log('📥 Found', peer.pendingRemoteAnswers.length, 'queued answers after sending offer; waiting for have-local-offer');
+        const ready = await waitForPeerState(peer, 'have-local-offer', 3000);
+        if (!ready) {
+          console.warn('⚠️ Timed out waiting for have-local-offer; dropping queued answers');
+        } else {
+          const queued = peer.pendingRemoteAnswers.splice(0);
+          for (const answer of queued) {
+            try {
+              console.log('📥 Applying queued answer (after have-local-offer)');
+              if (!peer._processingRemote) {
+                peer._processingRemote = true;
+                await peer.setRemoteDescription(answer);
+                peer._processingRemote = false;
+              }
+            } catch (err) {
+              console.error('Error applying queued answer:', err);
             }
-          } catch (err) {
-            console.error('Error applying queued answer:', err);
           }
-        });
+        }
       }
     }).catch(error => {
       peer._localOfferInProgress = false;
