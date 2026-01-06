@@ -262,6 +262,12 @@ socket.on("signal", async data => {
         return;
       }
       
+      // Check if remote description is already set (avoid double-setting)
+      if (peer.remoteDescription) {
+        console.warn('⚠️ Remote description already set, ignoring duplicate offer');
+        return;
+      }
+      
       await peer.setRemoteDescription(data.signal);
       console.log('📥 Remote description set, creating answer');
       const answer = await peer.createAnswer();
@@ -283,6 +289,12 @@ socket.on("signal", async data => {
       
       if (peer.signalingState !== 'have-local-offer') {
         console.warn('⚠️ Cannot process answer - wrong state:', peer.signalingState, '(expected: have-local-offer)');
+        return;
+      }
+      
+      // Check if remote description is already set (avoid double-setting)
+      if (peer.remoteDescription) {
+        console.warn('⚠️ Remote description already set, ignoring duplicate answer');
         return;
       }
       
