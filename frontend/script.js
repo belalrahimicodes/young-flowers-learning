@@ -319,7 +319,10 @@ socket.on("signal", async data => {
       }
 
       if (peer.signalingState !== 'have-local-offer') {
-        console.warn('⚠️ Cannot process answer - wrong state:', peer.signalingState, '(expected: have-local-offer)');
+        console.warn('⚠️ Cannot process answer now - wrong state:', peer.signalingState, '(expected: have-local-offer). Queuing answer.');
+        // Queue the answer to process later when local offer has been sent
+        if (!peer.pendingRemoteAnswers) peer.pendingRemoteAnswers = [];
+        peer.pendingRemoteAnswers.push(data.signal);
         return;
       }
 
@@ -441,6 +444,9 @@ function createPeer(isCaller) {
 
   // initialize helper flags/queues to avoid race conditions
   if (!peer.pendingCandidates) peer.pendingCandidates = [];
+  if (!peer.pendingRemoteAnswers) peer.pendingRemoteAnswers = [];
+  peer._localOfferSent = false;
+  peer._localOfferInProgress = false;
   // internal lock to prevent concurrent setRemoteDescription calls
   peer._processingRemote = false;
 
@@ -483,13 +489,36 @@ function createPeer(isCaller) {
     dataChannel = peer.createDataChannel("chat");
     setupDataChannel();
 
+    peer._localOfferInProgress = true;
     peer.createOffer().then(offer => {
       console.log('📤 Offer created, setting local description');
       return peer.setLocalDescription(offer);
     }).then(() => {
+      peer._localOfferInProgress = false;
+      peer._localOfferSent = true;
       console.log('📤 Sending offer to partner:', partnerId);
       socket.emit("signal", { to: partnerId, signal: peer.localDescription });
+
+      // If any answers arrived early, process them now
+      if (peer.pendingRemoteAnswers && peer.pendingRemoteAnswers.length > 0) {
+        console.log('📥 Processing', peer.pendingRemoteAnswers.length, 'queued answers after sending offer');
+        const queued = peer.pendingRemoteAnswers.splice(0);
+        queued.forEach(async answer => {
+          try {
+            // reuse existing answer handling path
+            console.log('📥 Applying queued answer');
+            if (!peer._processingRemote) {
+              peer._processingRemote = true;
+              await peer.setRemoteDescription(answer);
+              peer._processingRemote = false;
+            }
+          } catch (err) {
+            console.error('Error applying queued answer:', err);
+          }
+        });
+      }
     }).catch(error => {
+      peer._localOfferInProgress = false;
       console.error('❌ Error creating/sending offer:', error);
     });
   } else {
