@@ -268,7 +268,21 @@ socket.on("signal", async data => {
         return;
       }
       
-      await peer.setRemoteDescription(data.signal);
+      // Prevent concurrent remote-description processing
+      if (peer._processingRemote) {
+        console.warn('⚠️ Remote description is already being processed - ignoring duplicate offer');
+        return;
+      }
+
+      peer._processingRemote = true;
+      try {
+        await peer.setRemoteDescription(data.signal);
+      } catch (err) {
+        console.error('❌ Error while setting remote description for offer:', err);
+        console.error('Peer state at error:', peer.signalingState, 'localDescription:', peer.localDescription, 'remoteDescription:', peer.remoteDescription);
+        peer._processingRemote = false;
+        return;
+      }
       console.log('📥 Remote description set, creating answer');
       
       // Process any pending ICE candidates now that remote description is set
@@ -289,48 +303,65 @@ socket.on("signal", async data => {
       await peer.setLocalDescription(answer);
       console.log('📤 Sending answer to:', data.from);
       socket.emit("signal", { to: data.from, signal: answer });
+      // release lock after sending answer
+      peer._processingRemote = false;
     }
 
     if (data.signal.type === "answer") {
       console.log('📥 Processing answer from:', data.from);
       console.log('Current signaling state:', peer.signalingState);
       console.log('We are caller:', isCaller);
-      
+
       // Only process answer if we're the caller and in have-local-offer state
       if (!isCaller) {
         console.warn('⚠️ Received answer but we are not the caller - ignoring');
         return;
       }
-      
+
       if (peer.signalingState !== 'have-local-offer') {
         console.warn('⚠️ Cannot process answer - wrong state:', peer.signalingState, '(expected: have-local-offer)');
         return;
       }
-      
+
+      // Prevent concurrent setRemoteDescription calls
+      if (peer._processingRemote) {
+        console.warn('⚠️ Remote description is already being processed - ignoring duplicate answer');
+        return;
+      }
+
       // Check if remote description is already set (avoid double-setting)
       if (peer.remoteDescription) {
         console.warn('⚠️ Remote description already set, ignoring duplicate answer');
         return;
       }
-      
-      await peer.setRemoteDescription(data.signal);
-      console.log('✅ Answer processed successfully');
-      
-      // Process any pending ICE candidates now that remote description is set
-      if (peer.pendingCandidates && peer.pendingCandidates.length > 0) {
-        console.log('📥 Processing', peer.pendingCandidates.length, 'pending ICE candidates (after answer)');
-        const pendingCandidates = peer.pendingCandidates;
-        peer.pendingCandidates = [];
-        for (const candidate of pendingCandidates) {
-          try {
-            await peer.addIceCandidate(candidate);
-          } catch (err) {
-            console.error('Error adding pending candidate:', err);
+
+      peer._processingRemote = true;
+      try {
+        console.log('⏱️ Setting remote description for answer (locking)');
+        await peer.setRemoteDescription(data.signal);
+        console.log('✅ Answer processed successfully');
+
+        // Process any pending ICE candidates now that remote description is set
+        if (peer.pendingCandidates && peer.pendingCandidates.length > 0) {
+          console.log('📥 Processing', peer.pendingCandidates.length, 'pending ICE candidates (after answer)');
+          const pendingCandidates = peer.pendingCandidates;
+          peer.pendingCandidates = [];
+          for (const candidate of pendingCandidates) {
+            try {
+              await peer.addIceCandidate(candidate);
+            } catch (err) {
+              console.error('Error adding pending candidate:', err);
+            }
           }
         }
+
+        isProcessingMatch = false; // Match processing complete
+      } catch (err) {
+        console.error('❌ Error while setting remote description for answer:', err);
+        console.error('Peer state at error:', peer.signalingState, 'localDescription:', peer.localDescription, 'remoteDescription:', peer.remoteDescription);
+      } finally {
+        peer._processingRemote = false;
       }
-      
-      isProcessingMatch = false; // Match processing complete
     }
 
     if (data.signal.candidate) {
@@ -407,6 +438,11 @@ function createPeer(isCaller) {
   }
   
   peer = new RTCPeerConnection();
+
+  // initialize helper flags/queues to avoid race conditions
+  if (!peer.pendingCandidates) peer.pendingCandidates = [];
+  // internal lock to prevent concurrent setRemoteDescription calls
+  peer._processingRemote = false;
 
   // Only add tracks if localStream exists
   if (localStream && localStream.getTracks) {
