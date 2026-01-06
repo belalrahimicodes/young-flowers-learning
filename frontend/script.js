@@ -9,15 +9,14 @@ console.log('SOCKET_URL:', SOCKET_URL);
 console.log('window.io:', typeof window.io);
 
 const socket = window.io(SOCKET_URL, {
-  path: '/socket.io/',
+  // Let Socket.IO pick the best transport, but force polling if websockets
+  // are not supported by the hosting platform / proxy.
+  transports: ["polling"],
+  upgrade: false,
   reconnection: true,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
-  reconnectionAttempts: 5,
-  transports: ['websocket', 'polling'],
-  secure: true,
-  rejectUnauthorized: false,
-  forceNew: true
+  reconnectionAttempts: 5
 });
 
 console.log('Socket created with ID:', socket.id);
