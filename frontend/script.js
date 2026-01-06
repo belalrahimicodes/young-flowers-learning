@@ -179,6 +179,12 @@ socket.on("matched", id => {
   console.log('Current role:', role);
   console.log('Local stream available:', !!localStream);
   
+  // Clean up any existing connection first
+  if (peer) {
+    console.log('🧹 Cleaning up existing peer connection');
+    cleanupConnection();
+  }
+  
   partnerId = id;
   room.hidden = false; // stay visible
   
@@ -191,8 +197,13 @@ socket.on("matched", id => {
     messages.innerHTML = `<div style="text-align: center; padding: 20px; color: green;">✅ Matched! Connecting...</div>`;
   }
   
+  // Determine who should be the caller based on socket ID (lower ID is caller)
+  // This ensures only one side creates the offer
+  const isCaller = socket.id < id;
+  console.log('Will be caller:', isCaller, '(socket.id:', socket.id, 'vs partner:', id, ')');
+  
   try {
-    createPeer(true);
+    createPeer(isCaller);
     console.log('✅ createPeer called successfully');
   } catch (error) {
     console.error('❌ Error in createPeer:', error);
@@ -204,15 +215,31 @@ socket.on("matched", id => {
 
 socket.on("signal", async data => {
   console.log('📨 Signal received:', data.signal.type || 'ICE candidate', 'from:', data.from);
+  console.log('Current peer state:', peer ? peer.signalingState : 'no peer');
   
-  if (!peer) {
+  // If we don't have a peer yet and this is an offer, create one as receiver
+  if (!peer && data.signal.type === "offer") {
     console.log('📥 No peer exists, creating one (receiver)');
     createPeer(false);
+  }
+  
+  // If still no peer, something is wrong
+  if (!peer) {
+    console.error('❌ No peer connection available to process signal');
+    return;
   }
 
   try {
     if (data.signal.type === "offer") {
       console.log('📥 Processing offer from:', data.from);
+      console.log('Current signaling state:', peer.signalingState);
+      
+      // Only process offer if we're in stable state (haven't set local description yet)
+      if (peer.signalingState !== 'stable') {
+        console.warn('⚠️ Cannot process offer - not in stable state:', peer.signalingState);
+        return;
+      }
+      
       await peer.setRemoteDescription(data.signal);
       console.log('📥 Remote description set, creating answer');
       const answer = await peer.createAnswer();
@@ -223,15 +250,33 @@ socket.on("signal", async data => {
 
     if (data.signal.type === "answer") {
       console.log('📥 Processing answer from:', data.from);
+      console.log('Current signaling state:', peer.signalingState);
+      
+      // Only process answer if we're in have-local-offer state
+      if (peer.signalingState !== 'have-local-offer') {
+        console.warn('⚠️ Cannot process answer - wrong state:', peer.signalingState);
+        return;
+      }
+      
       await peer.setRemoteDescription(data.signal);
+      console.log('✅ Answer processed successfully');
     }
 
     if (data.signal.candidate) {
       console.log('🧊 Adding ICE candidate from:', data.from);
-      await peer.addIceCandidate(data.signal);
+      // Only add candidates if remote description is set
+      if (peer.remoteDescription) {
+        await peer.addIceCandidate(data.signal);
+      } else {
+        console.log('⏳ Queueing ICE candidate (waiting for remote description)');
+        // Queue the candidate to add later
+        if (!peer.pendingCandidates) peer.pendingCandidates = [];
+        peer.pendingCandidates.push(data.signal);
+      }
     }
   } catch (error) {
     console.error('❌ Error processing signal:', error);
+    console.error('Peer state was:', peer.signalingState);
   }
 });
 
@@ -304,7 +349,20 @@ function createPeer(isCaller) {
 
   peer.onicecandidate = e => {
     if (e.candidate) {
+      console.log('🧊 ICE candidate generated, sending to:', partnerId);
       socket.emit("signal", { to: partnerId, signal: e.candidate });
+    } else {
+      console.log('🧊 ICE candidate gathering complete');
+      // Add any pending candidates now that remote description is set
+      if (peer.pendingCandidates && peer.pendingCandidates.length > 0) {
+        console.log('📥 Processing', peer.pendingCandidates.length, 'pending ICE candidates');
+        peer.pendingCandidates.forEach(candidate => {
+          peer.addIceCandidate(candidate).catch(err => {
+            console.error('Error adding pending candidate:', err);
+          });
+        });
+        peer.pendingCandidates = [];
+      }
     }
   };
 
