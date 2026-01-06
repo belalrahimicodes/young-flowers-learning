@@ -80,6 +80,7 @@ const messages = document.getElementById("messages");
 const chatInput = document.getElementById("chatInput");
 const sendBtn = document.getElementById("sendBtn");
 const onlineCount = document.getElementById("onlineCount");
+const statusEl = document.getElementById("status");
 const muteBtn = document.getElementById("muteBtn");
 const cameraBtn = document.getElementById("cameraBtn");
 
@@ -91,8 +92,20 @@ socket.on('onlineCount', n => {
 
 async function join(selectedRole) {
   role = selectedRole;
+  console.log('🔵 Joining as:', role);
+  
+  if (statusEl) {
+    statusEl.textContent = `Joining as ${role === 'learn' ? 'Learner' : 'Teacher'}...`;
+    statusEl.style.color = '#666';
+  }
+  
   landing.hidden = true;
   room.hidden = false;
+
+  // Show waiting message
+  if (messages) {
+    messages.innerHTML = `<div style="text-align: center; padding: 20px; color: #666;">Waiting for a match...</div>`;
+  }
 
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -102,7 +115,13 @@ async function join(selectedRole) {
     // allow joining without media
   }
 
+  console.log('📤 Emitting join event with role:', role);
   socket.emit("join", role);
+  
+  if (statusEl) {
+    statusEl.textContent = `Waiting for a ${role === 'learn' ? 'Teacher' : 'Learner'}...`;
+    statusEl.style.color = '#ff9800';
+  }
 }
 
 // Chat sending
@@ -156,9 +175,18 @@ function cleanupConnection() {
 
 // Socket events
 socket.on("matched", id => {
-  console.log('matched with', id);
+  console.log('✅ MATCHED with partner:', id);
   partnerId = id;
   room.hidden = false; // stay visible
+  
+  if (statusEl) {
+    statusEl.textContent = `✅ Matched!`;
+    statusEl.style.color = '#4caf50';
+  }
+  
+  if (messages) {
+    messages.innerHTML = `<div style="text-align: center; padding: 20px; color: green;">✅ Matched! Connecting...</div>`;
+  }
   createPeer(true);
 });
 

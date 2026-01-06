@@ -39,9 +39,10 @@ io.on("connection", socket => {
   emitOnlineCount();
   
   socket.on("join", role => {
+    console.log(`\n🔵 JOIN EVENT: Socket ${socket.id} joined as ${role}`);
     socket.role = role;
-    console.log(`Socket ${socket.id} joined as ${role}`);
     addToQueue(socket);
+    console.log(`📊 Current queues - Learners: ${learners.length}, Teachers: ${teachers.length}`);
     matchUsers();
     emitOnlineCount();
   });
@@ -153,6 +154,18 @@ app.get('/', (req, res) => {
 // Health check for platform
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
+});
+
+// Debug endpoint to check queue status
+app.get('/debug/queues', (req, res) => {
+  res.status(200).json({
+    learners: learners.length,
+    teachers: teachers.length,
+    totalConnected: io.of("/").sockets.size,
+    learnerIds: learners.map(s => s.id),
+    teacherIds: teachers.map(s => s.id),
+    pairs: Array.from(pairs.entries())
+  });
 });
 
 const PORT = process.env.PORT || 3000;
