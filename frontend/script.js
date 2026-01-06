@@ -7,19 +7,23 @@ const SOCKET_URL =
 console.log('=== Socket.IO Connection Debug ===');
 console.log('SOCKET_URL:', SOCKET_URL);
 console.log('window.io:', typeof window.io);
+console.log('Transport config: polling only, upgrade disabled');
 
 const socket = window.io(SOCKET_URL, {
-  // Let Socket.IO pick the best transport, but force polling if websockets
-  // are not supported by the hosting platform / proxy.
+  // Force polling only - WebSocket upgrade is disabled
+  // This is more reliable on Railway/Netlify deployments
   transports: ["polling"],
   upgrade: false,
   reconnection: true,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
-  reconnectionAttempts: 5
+  reconnectionAttempts: 5,
+  // Add query parameter to help with debugging
+  query: { transport: 'polling' }
 });
 
 console.log('Socket created with ID:', socket.id);
+console.log('Socket transport:', socket.io.engine?.transport?.name || 'unknown');
 console.log('Socket URL:', socket.io.uri);
 
 let localStream;

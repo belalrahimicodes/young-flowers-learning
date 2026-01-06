@@ -21,7 +21,13 @@ const io = new Server(server, {
     credentials: useCredentials,
     allowEIO3: true
   },
-  transports: ["websocket", "polling"]
+  // Prioritize polling for better Railway compatibility
+  transports: ["polling", "websocket"],
+  // Allow connections from any path (Railway proxy might affect this)
+  path: "/socket.io/",
+  // Increase ping timeout for Railway's proxy
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 let learners = [];
