@@ -4,16 +4,24 @@ const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
-// Get the frontend URL from environment or allow all origins
+
+// Get the frontend URL from environment or allow all origins.
+// IMPORTANT:
+// - In production (Railway), set CLIENT_ORIGIN to your Netlify URL,
+//   e.g. https://young-flowers-learning.netlify.app
+// - When CLIENT_ORIGIN is "*", we must NOT send credentials because
+//   browsers reject Access-Control-Allow-Origin "*" with credentials=true.
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "*";
+const useCredentials = CLIENT_ORIGIN !== "*";
+
 const io = new Server(server, {
   cors: {
     origin: CLIENT_ORIGIN,
     methods: ["GET", "POST"],
-    credentials: true,
+    credentials: useCredentials,
     allowEIO3: true
   },
-  transports: ['websocket', 'polling']
+  transports: ["websocket", "polling"]
 });
 
 let learners = [];

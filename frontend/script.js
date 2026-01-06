@@ -1,6 +1,8 @@
 // Read backend socket URL from global variable set in HTML
-// Railway public domain handles routing automatically
-const SOCKET_URL = 'https://young-flowers-learning-production.up.railway.app';
+// Falls back to the production Railway URL if not set.
+const SOCKET_URL =
+  (typeof window !== "undefined" && window.BACKEND_URL) ||
+  "https://young-flowers-learning-production.up.railway.app";
 
 console.log('=== Socket.IO Connection Debug ===');
 console.log('SOCKET_URL:', SOCKET_URL);
