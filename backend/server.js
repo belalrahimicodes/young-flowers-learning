@@ -10,8 +10,10 @@ const io = new Server(server, {
   cors: {
     origin: CLIENT_ORIGIN,
     methods: ["GET", "POST"],
-    credentials: true
-  }
+    credentials: true,
+    allowEIO3: true
+  },
+  transports: ['websocket', 'polling']
 });
 
 let learners = [];
