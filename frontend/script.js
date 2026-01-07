@@ -203,6 +203,11 @@ function cleanupConnection() {
 
 // Socket events
 socket.on("matched", id => {
+  if (partnerId === id && peer) {
+  console.warn("⚠️ Duplicate matched event ignored");
+  return;
+  }
+
   // Prevent processing the same match multiple times
   if (isProcessingMatch && partnerId === id) {
     console.log('⚠️ Ignoring duplicate match event for same partner:', id);
@@ -250,6 +255,8 @@ socket.on("matched", id => {
 });
 
 socket.on("signal", async data => {
+  if (!partnerId) return;
+
     // 🔑 Ignore signals from old connections
   if (!peer || peer._version !== connectionVersion) {
     console.warn("⚠️ Ignoring stale signal");
@@ -264,15 +271,6 @@ socket.on("signal", async data => {
   if (partnerId && data.from !== partnerId) {
     console.warn('⚠️ Ignoring signal from non-partner:', data.from, '(expected:', partnerId, ')');
     return;
-  }
-  
-  // If we don't have a peer yet and this is an offer, create one as receiver
-  if (!peer && data.signal.type === "offer") {
-    console.log('📥 No peer exists, creating one (receiver)');
-    if (!partnerId) {
-      partnerId = data.from; // Set partner ID from offer
-    }
-    createPeer(false);
   }
   
   // If still no peer, something is wrong
