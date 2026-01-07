@@ -16,10 +16,7 @@ const socket = window.io(SOCKET_URL, {
   forceNew: true
 });
 
-let socketReady = false;
-
 socket.on("connect", () => {
-  socketReady = true;
   console.log("✅ Socket connected:", socket.id);
   socket.emit("getOnlineCount");
 });
@@ -35,7 +32,6 @@ let localStream = null;
 let peer = null;
 let dataChannel = null;
 let partnerId = null;
-let role = null;
 let isCaller = false;
 let connectionVersion = 0;
 
@@ -53,12 +49,9 @@ const sendBtn = document.getElementById("sendBtn");
 /****************************************************
  * JOIN
  ****************************************************/
-async function join(selectedRole) {
-  role = selectedRole;
-
+async function join(role) {
   landing.hidden = true;
   room.hidden = false;
-
   messages.innerHTML = `<div>Waiting for match...</div>`;
 
   try {
@@ -94,13 +87,13 @@ function cleanupConnection() {
 }
 
 /****************************************************
- * MATCHED
+ * MATCHED (SERVER DECIDES CALLER)
  ****************************************************/
-socket.on("matched", id => {
+socket.on("matched", ({ partnerId: id, caller }) => {
   cleanupConnection();
 
   partnerId = id;
-  isCaller = socket.id.localeCompare(id) < 0;
+  isCaller = caller;
 
   console.log("🎉 Matched with", id, "Caller:", isCaller);
 
@@ -108,40 +101,34 @@ socket.on("matched", id => {
 });
 
 /****************************************************
- * SIGNAL HANDLING (CORRECT STATES ONLY)
+ * SIGNAL HANDLING (BULLETPROOF)
  ****************************************************/
 socket.on("signal", async ({ from, signal }) => {
   if (!peer || from !== partnerId) return;
   if (peer._version !== connectionVersion) return;
 
   try {
-    /* OFFER */
     if (signal.type === "offer") {
-      if (peer.signalingState !== "stable") {
-        console.warn("❌ Offer dropped, state:", peer.signalingState);
-        return;
-      }
+      if (peer.signalingState !== "stable") return;
 
       await peer.setRemoteDescription(signal);
+
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
 
       socket.emit("signal", { to: from, signal: answer });
+
+      flushIce();
     }
 
-    /* ANSWER */
     if (signal.type === "answer") {
       if (!isCaller) return;
-
-      if (peer.signalingState !== "have-local-offer") {
-        console.warn("❌ Answer dropped, state:", peer.signalingState);
-        return;
-      }
+      if (peer.signalingState !== "have-local-offer") return;
 
       await peer.setRemoteDescription(signal);
+      flushIce();
     }
 
-    /* ICE */
     if (signal.candidate) {
       if (peer.remoteDescription) {
         await peer.addIceCandidate(signal);
@@ -149,8 +136,8 @@ socket.on("signal", async ({ from, signal }) => {
         peer._pendingICE.push(signal);
       }
     }
-  } catch (err) {
-    console.error("❌ Signal error:", err);
+  } catch (e) {
+    console.error("❌ Signal error:", e);
   }
 });
 
@@ -166,9 +153,9 @@ function createPeer(caller) {
   peer._version = connectionVersion;
   peer._pendingICE = [];
 
-  if (localStream) {
-    localStream.getTracks().forEach(t => peer.addTrack(t, localStream));
-  }
+  localStream?.getTracks().forEach(t =>
+    peer.addTrack(t, localStream)
+  );
 
   peer.ontrack = e => {
     remoteVideo.srcObject = e.streams[0];
@@ -202,6 +189,15 @@ function createPeer(caller) {
       setupDataChannel();
     };
   }
+}
+
+/****************************************************
+ * ICE FLUSH
+ ****************************************************/
+function flushIce() {
+  if (!peer.remoteDescription) return;
+  peer._pendingICE.forEach(c => peer.addIceCandidate(c));
+  peer._pendingICE = [];
 }
 
 /****************************************************
