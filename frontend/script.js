@@ -1,90 +1,47 @@
-// Read backend socket URL from global variable set in HTML
-// Falls back to the production Railway URL if not set.
+/****************************************************
+ * CONFIG
+ ****************************************************/
 const SOCKET_URL =
   (typeof window !== "undefined" && window.BACKEND_URL) ||
   "https://young-flowers-learning-production.up.railway.app";
 
-// Version check - if you see this, the new script is loaded
-console.log('🚀🚀🚀 NEW VERSION LOADED - v20241220-001 🚀🚀🚀');
-console.log('=== Socket.IO Connection Debug v2 ===');
-console.log('SOCKET_URL:', SOCKET_URL);
-console.log('window.io:', typeof window.io);
+console.log("🚀 CLEAN WEBRTC VERSION LOADED");
 
-// Test backend connectivity first
-async function testBackendConnectivity() {
-  try {
-    const healthUrl = SOCKET_URL.replace(/\/socket\.io\/?$/, '') + '/health';
-    console.log('Testing backend connectivity:', healthUrl);
-    const response = await fetch(healthUrl);
-    const data = await response.text();
-    console.log('✅ Backend is reachable:', response.status, data);
-    return true;
-  } catch (error) {
-    console.error('❌ Backend connectivity test failed:', error);
-    return false;
-  }
-}
-
-// Wait for a specific peer.signalingState (with timeout)
-async function waitForPeerState(peer, desiredState, timeout = 2000) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    if (!peer) return false;
-    if (peer.signalingState === desiredState) return true;
-    await new Promise(r => setTimeout(r, 50));
-  }
-  return false;
-}
-
-// Run connectivity test
-testBackendConnectivity();
-
-// Explicitly prevent WebSocket attempts
-const socketOptions = {
-  // CRITICAL: Force polling ONLY, no WebSocket attempts
+/****************************************************
+ * SOCKET.IO
+ ****************************************************/
+const socket = window.io(SOCKET_URL, {
   transports: ["polling"],
   upgrade: false,
-  allowUpgrades: false,
-  reconnection: true,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000,
-  reconnectionAttempts: 5,
-  // Add query parameter to help with debugging
-  query: { transport: 'polling', v: '2' },
-  // Force new connection
   forceNew: true
-};
-
-console.log('Socket options:', JSON.stringify(socketOptions, null, 2));
-
-const socket = window.io(SOCKET_URL, socketOptions);
-
-console.log('Socket created with ID:', socket.id);
-console.log('Socket URL:', socket.io.uri);
-
-// Monitor transport changes
-socket.io.on("transport", (transport) => {
-  console.log('🔵 Transport changed to:', transport.name);
-  if (transport.name === 'websocket') {
-    console.error('❌ ERROR: WebSocket transport detected! This should not happen.');
-  }
 });
 
-socket.io.on("open", () => {
-  console.log('✅ Socket.IO connection opened');
-  console.log('Current transport:', socket.io.engine?.transport?.name);
-});
-let connectionVersion = 0; // 🔑 increments on every new match / Next
-let localStream;
-let peer;
-let dataChannel;
-let partnerId;
-let role;
-let isMuted = false;
-let cameraOff = false;
-let isCaller = false; // Track if we're the caller
-let isProcessingMatch = false; // Prevent duplicate match processing
+let socketReady = false;
 
+socket.on("connect", () => {
+  socketReady = true;
+  console.log("✅ Socket connected:", socket.id);
+  socket.emit("getOnlineCount");
+});
+
+socket.on("onlineCount", n => {
+  document.getElementById("onlineCount").textContent = `Online users: ${n}`;
+});
+
+/****************************************************
+ * GLOBAL STATE
+ ****************************************************/
+let localStream = null;
+let peer = null;
+let dataChannel = null;
+let partnerId = null;
+let role = null;
+let isCaller = false;
+let connectionVersion = 0;
+
+/****************************************************
+ * DOM
+ ****************************************************/
 const landing = document.getElementById("landing");
 const room = document.getElementById("room");
 const localVideo = document.getElementById("localVideo");
@@ -92,508 +49,183 @@ const remoteVideo = document.getElementById("remoteVideo");
 const messages = document.getElementById("messages");
 const chatInput = document.getElementById("chatInput");
 const sendBtn = document.getElementById("sendBtn");
-const onlineCount = document.getElementById("onlineCount");
-const statusEl = document.getElementById("status");
-const muteBtn = document.getElementById("muteBtn");
-const cameraBtn = document.getElementById("cameraBtn");
 
-// Online user count listener (set up before connection)
-socket.on('onlineCount', n => {
-  onlineCount.textContent = `Online users: ${n}`;
-  console.log('Updated online count:', n);
-});
-
+/****************************************************
+ * JOIN
+ ****************************************************/
 async function join(selectedRole) {
   role = selectedRole;
-  console.log('🔵 Joining as:', role);
-  
-  if (statusEl) {
-    statusEl.textContent = `Joining as ${role === 'learn' ? 'Learner' : 'Teacher'}...`;
-    statusEl.style.color = '#666';
-  }
-  
+
   landing.hidden = true;
   room.hidden = false;
 
-  // Show waiting message
-  if (messages) {
-    messages.innerHTML = `<div style="text-align: center; padding: 20px; color: #666;">Waiting for a match...</div>`;
-  }
+  messages.innerHTML = `<div>Waiting for match...</div>`;
 
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true
+    });
     localVideo.srcObject = localStream;
-  } catch (err) {
-    console.warn('getUserMedia failed:', err);
-    // allow joining without media
+  } catch (e) {
+    console.warn("Media denied:", e);
   }
 
-  console.log('📤 Emitting join event with role:', role);
   socket.emit("join", role);
-  
-  if (statusEl) {
-    statusEl.textContent = `Waiting for a ${role === 'learn' ? 'Teacher' : 'Learner'}...`;
-    statusEl.style.color = '#ff9800';
-  }
 }
 
-// Chat sending
-sendBtn.addEventListener("click", sendMessage);
-chatInput.addEventListener("keypress", e => {
-  if (e.key === "Enter") sendMessage();
-});
-
-function sendMessage() {
-  const msg = chatInput.value.trim();
-  if (!msg || !dataChannel) return;
-  dataChannel.send(msg);
-  messages.innerHTML += `<div>You: ${msg}</div>`;
-  chatInput.value = "";
-  messages.scrollTop = messages.scrollHeight;
-}
-
-// Toggle microphone
-function toggleMute() {
-  if (!localStream) return;
-  isMuted = !isMuted;
-  localStream.getAudioTracks()[0].enabled = !isMuted;
-  muteBtn.textContent = isMuted ? "Unmute" : "Mute";
-}
-
-// Toggle camera
-function toggleCamera() {
-  if (!localStream) return;
-  cameraOff = !cameraOff;
-  localStream.getVideoTracks()[0].enabled = !cameraOff;
-  cameraBtn.textContent = cameraOff ? "Camera On" : "Camera Off";
-}
-
-// Next button
-function nextUser() {
-  console.log('Next button clicked, current role:', role);
-  cleanupConnection();
-  socket.emit("next");
-  console.log('Next request sent to server');
-}
-
-// Cleanup connection
+/****************************************************
+ * CLEANUP
+ ****************************************************/
 function cleanupConnection() {
-  // 🔑 Invalidate all old signaling
   connectionVersion++;
 
   if (peer) {
     peer.onicecandidate = null;
     peer.ontrack = null;
     peer.ondatachannel = null;
-    peer.onerror = null;
     peer.close();
   }
 
   peer = null;
   dataChannel = null;
   partnerId = null;
-  isCaller = false;
-  isProcessingMatch = false;
-
   remoteVideo.srcObject = null;
-
-  if (messages) messages.innerHTML = "";
 }
 
-
-// Socket events
+/****************************************************
+ * MATCHED
+ ****************************************************/
 socket.on("matched", id => {
-  if (partnerId === id && peer) {
-  console.warn("⚠️ Duplicate matched event ignored");
-  return;
-  }
+  cleanupConnection();
 
-  // Prevent processing the same match multiple times
-  if (isProcessingMatch && partnerId === id) {
-    console.log('⚠️ Ignoring duplicate match event for same partner:', id);
-    return;
-  }
-  
-  console.log('🎉🎉🎉 MATCHED EVENT RECEIVED! Partner ID:', id);
-  console.log('Current role:', role);
-  console.log('Local stream available:', !!localStream);
-  
-  // Clean up any existing connection first
-  if (peer) {
-    console.log('🧹 Cleaning up existing peer connection');
-    cleanupConnection();
-  }
-  
-  isProcessingMatch = true;
   partnerId = id;
-  room.hidden = false; // stay visible
-  
-  if (statusEl) {
-    statusEl.textContent = `✅ Matched!`;
-    statusEl.style.color = '#4caf50';
-  }
-  
-  if (messages) {
-    messages.innerHTML = `<div style="text-align: center; padding: 20px; color: green;">✅ Matched! Connecting...</div>`;
-  }
-  
-  // Determine who should be the caller based on socket ID (lower ID is caller)
-  // This ensures only one side creates the offer
-  isCaller = socket.id < id;
-  console.log('Will be caller:', isCaller, '(socket.id:', socket.id, 'vs partner:', id, ')');
-  
-  try {
-    createPeer(isCaller);
-    console.log('✅ createPeer called successfully');
-  } catch (error) {
-    console.error('❌ Error in createPeer:', error);
-    isProcessingMatch = false;
-    if (messages) {
-      messages.innerHTML += `<div style="color: red;">Error connecting: ${error.message}</div>`;
-    }
-  }
+  isCaller = socket.id.localeCompare(id) < 0;
+
+  console.log("🎉 Matched with", id, "Caller:", isCaller);
+
+  createPeer(isCaller);
 });
 
-socket.on("signal", async data => {
-  if (!partnerId) return;
-
-    // 🔑 Ignore signals from old connections
-  if (!peer || peer._version !== connectionVersion) {
-    console.warn("⚠️ Ignoring stale signal");
-    return;
-  }
-
-  console.log('📨 Signal received:', data.signal.type || 'ICE candidate', 'from:', data.from);
-  console.log('Current partner ID:', partnerId);
-  console.log('Current peer state:', peer ? peer.signalingState : 'no peer');
-  
-  // Only process signals from our current partner
-  if (partnerId && data.from !== partnerId) {
-    console.warn('⚠️ Ignoring signal from non-partner:', data.from, '(expected:', partnerId, ')');
-    return;
-  }
-  
-  // If still no peer, something is wrong
-  if (!peer) {
-    console.error('❌ No peer connection available to process signal');
-    return;
-  }
+/****************************************************
+ * SIGNAL HANDLING (CORRECT STATES ONLY)
+ ****************************************************/
+socket.on("signal", async ({ from, signal }) => {
+  if (!peer || from !== partnerId) return;
+  if (peer._version !== connectionVersion) return;
 
   try {
-    if (data.signal.type === "offer") {
-      console.log('📥 Processing offer from:', data.from);
-      console.log('Current signaling state:', peer.signalingState);
-      
-      // Only process offer if we're in stable state (haven't set local description yet)
-      if (peer.signalingState !== 'stable') {
-        console.warn('⚠️ Cannot process offer - not in stable state:', peer.signalingState);
-        return;
-      }
-      
-      // Check if remote description is already set (avoid double-setting)
-      if (peer.remoteDescription) {
-        console.warn('⚠️ Remote description already set, ignoring duplicate offer');
-        return;
-      }
-      
-      // Prevent concurrent remote-description processing
-      if (peer._processingRemote) {
-        console.warn('⚠️ Remote description is already being processed - ignoring duplicate offer');
+    /* OFFER */
+    if (signal.type === "offer") {
+      if (peer.signalingState !== "stable") {
+        console.warn("❌ Offer dropped, state:", peer.signalingState);
         return;
       }
 
-      peer._processingRemote = true;
-      try {
-        await peer.setRemoteDescription(data.signal);
-      } catch (err) {
-        console.error('❌ Error while setting remote description for offer:', err);
-        console.error('Peer state at error:', peer.signalingState, 'localDescription:', peer.localDescription, 'remoteDescription:', peer.remoteDescription);
-        peer._processingRemote = false;
-        return;
-      }
-      console.log('📥 Remote description set, creating answer');
-      
-      // Process any pending ICE candidates now that remote description is set
-      if (peer.pendingCandidates && peer.pendingCandidates.length > 0) {
-        console.log('📥 Processing', peer.pendingCandidates.length, 'pending ICE candidates (after offer)');
-        const pendingCandidates = peer.pendingCandidates;
-        peer.pendingCandidates = [];
-        for (const candidate of pendingCandidates) {
-          try {
-            await peer.addIceCandidate(candidate);
-          } catch (err) {
-            console.error('Error adding pending candidate:', err);
-          }
-        }
-      }
-      
+      await peer.setRemoteDescription(signal);
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
-      console.log('📤 Sending answer to:', data.from);
-      socket.emit("signal", { to: data.from, signal: answer });
-      // release lock after sending answer
-      peer._processingRemote = false;
+
+      socket.emit("signal", { to: from, signal: answer });
     }
 
-    if (data.signal.type === "answer") {
-      console.log('📥 Processing answer from:', data.from);
-      console.log('Current signaling state:', peer.signalingState);
-      console.log('We are caller:', isCaller);
+    /* ANSWER */
+    if (signal.type === "answer") {
+      if (!isCaller) return;
 
-      // Only process answer if we're the caller and in have-local-offer state
-      if (!isCaller) {
-        console.warn('⚠️ Received answer but we are not the caller - ignoring');
+      if (peer.signalingState !== "have-local-offer") {
+        console.warn("❌ Answer dropped, state:", peer.signalingState);
         return;
       }
 
-      if (peer.signalingState !== 'have-local-offer') {
-        console.warn('⚠️ Cannot process answer now - wrong state:', peer.signalingState, '(expected: have-local-offer). Queuing answer.');
-        // Queue the answer to process later when local offer has been sent
-        if (!peer.pendingRemoteAnswers) peer.pendingRemoteAnswers = [];
-        // avoid queuing duplicate SDP
-        const sdp = data.signal && data.signal.sdp ? data.signal.sdp : JSON.stringify(data.signal || {});
-        if (peer._lastQueuedAnswer !== sdp) {
-          peer.pendingRemoteAnswers.push(data.signal);
-          peer._lastQueuedAnswer = sdp;
-        } else {
-          console.warn('⚠️ Duplicate answer SDP detected, not queueing');
-        }
-        return;
-      }
-
-      // Prevent concurrent setRemoteDescription calls
-      if (peer._processingRemote) {
-        console.warn('⚠️ Remote description is already being processed - ignoring duplicate answer');
-        return;
-      }
-
-      // Check if remote description is already set (avoid double-setting)
-      if (peer.remoteDescription) {
-        console.warn('⚠️ Remote description already set, ignoring duplicate answer');
-        return;
-      }
-
-      peer._processingRemote = true;
-      try {
-        console.log('⏱️ Setting remote description for answer (locking)');
-        await peer.setRemoteDescription(data.signal);
-        console.log('✅ Answer processed successfully');
-
-        // Process any pending ICE candidates now that remote description is set
-        if (peer.pendingCandidates && peer.pendingCandidates.length > 0) {
-          console.log('📥 Processing', peer.pendingCandidates.length, 'pending ICE candidates (after answer)');
-          const pendingCandidates = peer.pendingCandidates;
-          peer.pendingCandidates = [];
-          for (const candidate of pendingCandidates) {
-            try {
-              await peer.addIceCandidate(candidate);
-            } catch (err) {
-              console.error('Error adding pending candidate:', err);
-            }
-          }
-        }
-
-        isProcessingMatch = false; // Match processing complete
-      } catch (err) {
-        console.error('❌ Error while setting remote description for answer:', err);
-        console.error('Peer state at error:', peer.signalingState, 'localDescription:', peer.localDescription, 'remoteDescription:', peer.remoteDescription);
-      } finally {
-        peer._processingRemote = false;
-      }
+      await peer.setRemoteDescription(signal);
     }
 
-    if (data.signal.candidate) {
-      console.log('🧊 Adding ICE candidate from:', data.from);
-      // Only add candidates if remote description is set
+    /* ICE */
+    if (signal.candidate) {
       if (peer.remoteDescription) {
-        try {
-          await peer.addIceCandidate(data.signal);
-          console.log('✅ ICE candidate added successfully');
-        } catch (err) {
-          console.error('Error adding ICE candidate:', err.message);
-        }
+        await peer.addIceCandidate(signal);
       } else {
-        console.log('⏳ Queueing ICE candidate (waiting for remote description)');
-        // Queue the candidate to add later
-        if (!peer.pendingCandidates) peer.pendingCandidates = [];
-        peer.pendingCandidates.push(data.signal);
+        peer._pendingICE.push(signal);
       }
     }
-  } catch (error) {
-    console.error('❌ Error processing signal:', error);
-    console.error('Peer state was:', peer.signalingState);
+  } catch (err) {
+    console.error("❌ Signal error:", err);
   }
 });
 
-socket.on("partner-left", () => {
-  cleanupConnection();
-  socket.emit("join", role);
-});
-
-socket.on('connect', () => {
-  console.log('✅ Socket connected successfully!', socket.id);
-  console.log('Connected to:', socket.io.uri);
-  // Request initial online count from server
-  socket.emit('getOnlineCount');
-});
-
-// Debug: Log all socket events
-const originalEmit = socket.emit;
-socket.emit = function(...args) {
-  console.log('📤 Emitting:', args[0], args.slice(1));
-  return originalEmit.apply(this, args);
-};
-
-// Log all received events
-socket.onAny((eventName, ...args) => {
-  console.log('📥 Received event:', eventName, args);
-});
-
-socket.on('disconnect', (reason) => {
-  console.log('⚠️ Socket disconnected:', reason);
-});
-
-socket.on('reconnect', () => {
-  console.log('✅ Socket reconnected');
-});
-
-socket.on('reconnect_error', (error) => {
-  console.error('❌ Socket reconnect error:', error);
-});
-
-socket.on('connect_error', (error) => {
-  console.error('❌ Socket connection error:', error);
-  console.error('Attempted to connect to:', SOCKET_URL);
-});
-
-// WebRTC
-function createPeer(isCaller) {
-  console.log('🔵 createPeer called, isCaller:', isCaller);
-  console.log('Local stream:', localStream ? 'available' : 'NOT available');
-  
-  if (!localStream) {
-    console.warn('⚠️ No local stream available, creating peer without tracks');
-  }
-  
+/****************************************************
+ * PEER CONNECTION
+ ****************************************************/
+function createPeer(caller) {
   peer = new RTCPeerConnection({
-  bundlePolicy: "max-bundle",
-  rtcpMuxPolicy: "require"
+    bundlePolicy: "max-bundle",
+    rtcpMuxPolicy: "require"
   });
 
-  // 🔑 Stamp peer with current connection version
   peer._version = connectionVersion;
+  peer._pendingICE = [];
 
-  // initialize helper flags/queues to avoid race conditions
-  if (!peer.pendingCandidates) peer.pendingCandidates = [];
-  if (!peer.pendingRemoteAnswers) peer.pendingRemoteAnswers = [];
-  peer._localOfferSent = false;
-  peer._localOfferInProgress = false;
-  // internal lock to prevent concurrent setRemoteDescription calls
-  peer._processingRemote = false;
-
-  // Only add tracks if localStream exists
-  if (localStream && localStream.getTracks) {
-    localStream.getTracks().forEach(track => {
-      console.log('Adding track:', track.kind, track.enabled);
-      peer.addTrack(track, localStream);
-    });
-  } else {
-    console.warn('⚠️ Cannot add tracks - localStream is not available');
+  if (localStream) {
+    localStream.getTracks().forEach(t => peer.addTrack(t, localStream));
   }
 
   peer.ontrack = e => {
-    console.log('📹 Remote track received:', e.track.kind);
     remoteVideo.srcObject = e.streams[0];
   };
 
   peer.onicecandidate = e => {
     if (e.candidate) {
-      console.log('🧊 ICE candidate generated, sending to:', partnerId);
       socket.emit("signal", { to: partnerId, signal: e.candidate });
-    } else {
-      console.log('🧊 ICE candidate gathering complete');
-      // Add any pending candidates now that remote description is set
-      if (peer.pendingCandidates && peer.pendingCandidates.length > 0) {
-        console.log('📥 Processing', peer.pendingCandidates.length, 'pending ICE candidates');
-        peer.pendingCandidates.forEach(candidate => {
-          peer.addIceCandidate(candidate).catch(err => {
-            console.error('Error adding pending candidate:', err);
-          });
-        });
-        peer.pendingCandidates = [];
-      }
     }
   };
 
-  if (isCaller) {
-    console.log('📞 Creating data channel and offer (caller)');
+  peer.onconnectionstatechange = () => {
+    console.log("🔗 Peer state:", peer.connectionState);
+  };
+
+  if (caller) {
     dataChannel = peer.createDataChannel("chat");
     setupDataChannel();
 
-    peer._localOfferInProgress = true;
-    peer.createOffer().then(offer => {
-      console.log('📤 Offer created, setting local description');
-      return peer.setLocalDescription(offer);
-    }).then(() => {
-      peer._localOfferInProgress = false;
-      peer._localOfferSent = true;
-      console.log('📤 Sending offer to partner:', partnerId);
-      socket.emit("signal", { to: partnerId, signal: peer.localDescription });
-
-      // If any answers arrived early, wait for local-offer state then process them
-      if (peer.pendingRemoteAnswers && peer.pendingRemoteAnswers.length > 0) {
-        console.log('📥 Found', peer.pendingRemoteAnswers.length, 'queued answers after sending offer; waiting for have-local-offer');
-        const ready = await waitForPeerState(peer, 'have-local-offer', 3000);
-        if (!ready) {
-          console.warn('⚠️ Timed out waiting for have-local-offer; dropping queued answers');
-        } else {
-          const queued = peer.pendingRemoteAnswers.splice(0);
-          for (const answer of queued) {
-            try {
-              console.log('📥 Applying queued answer (after have-local-offer)');
-              const sdp = answer && answer.sdp ? answer.sdp : JSON.stringify(answer || {});
-              if (peer.remoteDescription && peer.remoteDescription.sdp === sdp) {
-                console.warn('⚠️ Queued answer matches existing remoteDescription - skipping');
-                continue;
-              }
-              if (!peer._processingRemote) {
-                peer._processingRemote = true;
-                await peer.setRemoteDescription(answer);
-                peer._processingRemote = false;
-                peer._lastRemoteSDP = sdp;
-              }
-            } catch (err) {
-              console.error('Error applying queued answer:', err);
-            }
-          }
-        }
-      }
-    }).catch(error => {
-      peer._localOfferInProgress = false;
-      console.error('❌ Error creating/sending offer:', error);
-    });
+    peer.createOffer()
+      .then(o => peer.setLocalDescription(o))
+      .then(() => {
+        socket.emit("signal", {
+          to: partnerId,
+          signal: peer.localDescription
+        });
+      });
   } else {
-    console.log('📥 Waiting for data channel and offer (receiver)');
     peer.ondatachannel = e => {
-      console.log('📥 Data channel received');
       dataChannel = e.channel;
       setupDataChannel();
     };
   }
-  
-  // Add error handlers
-  peer.onerror = (error) => {
-    console.error('❌ RTCPeerConnection error:', error);
-  };
-  
-  peer.onconnectionstatechange = () => {
-    console.log('🔵 Peer connection state:', peer.connectionState);
-  };
 }
 
+/****************************************************
+ * CHAT
+ ****************************************************/
 function setupDataChannel() {
   dataChannel.onmessage = e => {
     messages.innerHTML += `<div>Partner: ${e.data}</div>`;
-    messages.scrollTop = messages.scrollHeight;
   };
+}
+
+sendBtn.onclick = () => {
+  if (!dataChannel) return;
+  const msg = chatInput.value.trim();
+  if (!msg) return;
+  dataChannel.send(msg);
+  messages.innerHTML += `<div>You: ${msg}</div>`;
+  chatInput.value = "";
+};
+
+/****************************************************
+ * NEXT
+ ****************************************************/
+function nextUser() {
+  cleanupConnection();
+  socket.emit("next");
 }
