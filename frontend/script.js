@@ -74,7 +74,7 @@ socket.io.on("open", () => {
   console.log('✅ Socket.IO connection opened');
   console.log('Current transport:', socket.io.engine?.transport?.name);
 });
-
+let connectionVersion = 0; // 🔑 increments on every new match / Next
 let localStream;
 let peer;
 let dataChannel;
@@ -178,15 +178,28 @@ function nextUser() {
 
 // Cleanup connection
 function cleanupConnection() {
-  if (peer) peer.close();
+  // 🔑 Invalidate all old signaling
+  connectionVersion++;
+
+  if (peer) {
+    peer.onicecandidate = null;
+    peer.ontrack = null;
+    peer.ondatachannel = null;
+    peer.onerror = null;
+    peer.close();
+  }
+
   peer = null;
   dataChannel = null;
   partnerId = null;
   isCaller = false;
   isProcessingMatch = false;
+
   remoteVideo.srcObject = null;
+
   if (messages) messages.innerHTML = "";
 }
+
 
 // Socket events
 socket.on("matched", id => {
@@ -237,6 +250,12 @@ socket.on("matched", id => {
 });
 
 socket.on("signal", async data => {
+    // 🔑 Ignore signals from old connections
+  if (!peer || peer._version !== connectionVersion) {
+    console.warn("⚠️ Ignoring stale signal");
+    return;
+  }
+
   console.log('📨 Signal received:', data.signal.type || 'ICE candidate', 'from:', data.from);
   console.log('Current partner ID:', partnerId);
   console.log('Current peer state:', peer ? peer.signalingState : 'no peer');
@@ -458,7 +477,13 @@ function createPeer(isCaller) {
     console.warn('⚠️ No local stream available, creating peer without tracks');
   }
   
-  peer = new RTCPeerConnection();
+  peer = new RTCPeerConnection({
+  bundlePolicy: "max-bundle",
+  rtcpMuxPolicy: "require"
+  });
+
+  // 🔑 Stamp peer with current connection version
+  peer._version = connectionVersion;
 
   // initialize helper flags/queues to avoid race conditions
   if (!peer.pendingCandidates) peer.pendingCandidates = [];
